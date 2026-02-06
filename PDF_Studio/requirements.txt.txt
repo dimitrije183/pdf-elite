@@ -1,0 +1,6 @@
+flask
+flask-sqlalchemy
+pdfplumber
+pypdf
+python-docx
+gunicorn

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <title>PDF Visual Elite v2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <style>
+        body { background: #0f172a; color: #f8fafc; }
+        .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .card-active { border: 2px solid #3b82f6; box-shadow: 0 0 15px rgba(59, 130, 246, 0.4); }
+    </style>
+</head>
+<body class="min-h-screen font-sans">
+
+    <div id="home-page" class="max-w-4xl mx-auto py-24 text-center">
+        <h1 class="text-6xl font-black mb-12 bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">PDF ELITE v2</h1>
+        <div class="grid md:grid-cols-2 gap-8 px-6">
+            <div onclick="showPage('editor-page')" class="glass p-12 rounded-3xl cursor-pointer hover:bg-white/5 transition">
+                <span class="text-5xl block mb-4">🔧</span>
+                <h2 class="text-2xl font-bold">Visual Editor</h2>
+                <p class="text-slate-400 mt-2">Spoji, rotiraj i sortiraj stranice.</p>
+            </div>
+            <div onclick="showPage('export-page')" class="glass p-12 rounded-3xl cursor-pointer hover:bg-white/5 transition">
+                <span class="text-5xl block mb-4">📑</span>
+                <h2 class="text-2xl font-bold">Export Tool</h2>
+                <p class="text-slate-400 mt-2">Pretvori u Word ili TXT.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="editor-page" class="hidden p-8 animate-in fade-in">
+        <div class="max-w-6xl mx-auto">
+            <div class="flex justify-between mb-8 items-center">
+                <button onclick="showPage('home-page')" class="text-slate-400">← Nazad</button>
+                <div class="flex gap-4">
+                    <input type="file" id="pdf-input" multiple accept=".pdf" class="hidden">
+                    <label for="pdf-input" class="bg-blue-600 px-6 py-2 rounded-xl font-bold cursor-pointer">Dodaj Dokumente</label>
+                    <button onclick="saveFinalPdf()" class="bg-emerald-600 px-6 py-2 rounded-xl font-bold">Sačuvaj Spojeno</button>
+                </div>
+            </div>
+            <div id="pages-container" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6 p-6 glass rounded-3xl min-h-[400px]">
+                </div>
+        </div>
+    </div>
+
+    <div id="export-page" class="hidden p-8">
+        <div class="max-w-xl mx-auto glass p-12 rounded-[3rem] text-center mt-20">
+            <button onclick="showPage('home-page')" class="text-slate-500 mb-6 block mx-auto">Nazad</button>
+            <h2 class="text-3xl font-bold mb-8 italic text-blue-400">Smart Conversion</h2>
+            <input type="file" id="export-upload" accept=".pdf" class="mb-8 w-full text-sm text-slate-400">
+            <div class="flex gap-4">
+                <button onclick="doExport('txt')" class="flex-1 bg-slate-800 py-4 rounded-2xl font-bold">TXT</button>
+                <button onclick="doExport('docx')" class="flex-1 bg-blue-700 py-4 rounded-2xl font-bold">WORD</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="fixed bottom-6 right-6 glass p-6 rounded-3xl border-l-4 border-blue-500 shadow-2xl">
+        <p class="text-[10px] uppercase font-bold text-slate-500">Ukupno strana u bazi</p>
+        <h3 id="stat-pages" class="text-3xl font-black text-white">0</h3>
+        <div id="history-list" class="mt-4 max-h-32 overflow-y-auto text-[10px] text-slate-500 space-y-1"></div>
+    </div>
+
+    <script>
+        // VAŽNO: Putanja do workera
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        
+        let pagesData = [];
+        const container = document.getElementById('pages-container');
+
+        new Sortable(container, { 
+            animation: 200, 
+            onEnd: () => {
+                const order = Array.from(container.children).map(c => c.dataset.id);
+                pagesData = order.map(id => pagesData.find(p => p.id == id));
+            }
+        });
+
+        function showPage(id) {
+            document.querySelectorAll('#home-page, #editor-page, #export-page').forEach(p => p.classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+            updateStats();
+        }
+
+        document.getElementById('pdf-input').addEventListener('change', async (e) => {
+            for (const file of e.target.files) {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdfData = new Uint8Array(arrayBuffer);
+                
+                // Učitavamo PDF za vizuelni prikaz
+                const loadingTask = pdfjsLib.getDocument({data: pdfData});
+                const pdfDoc = await loadingTask.promise;
+                
+                // Učitavamo PDF za stvarnu manipulaciju (pdf-lib)
+                const libDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+                const libPages = libDoc.getPages();
+
+                for (let i = 1; i <= pdfDoc.numPages; i++) {
+                    const page = await pdfDoc.getPage(i);
+                    const viewport = page.getViewport({scale: 0.3});
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({canvasContext: ctx, viewport: viewport}).promise;
+
+                    const id = "p_" + Math.random().toString(36).substr(2, 9);
+                    pagesData.push({ id, libPage: libPages[i-1], doc: libDoc, rotation: 0 });
+
+                    const div = document.createElement('div');
+                    div.className = "glass p-2 rounded-xl page-card relative cursor-grab";
+                    div.dataset.id = id;
+                    div.id = `card-${id}`;
+                    div.innerHTML = `
+                        <img src="${canvas.toDataURL()}" class="w-full h-auto rounded" id="img-${id}">
+                        <div class="flex gap-1 mt-2">
+                            <button onclick="rotate('${id}')" class="bg-blue-500/20 text-[9px] flex-1 py-1 rounded">ROT</button>
+                            <button onclick="remove('${id}')" class="bg-red-500/20 text-[9px] flex-1 py-1 rounded">DEL</button>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                }
+            }
+        });
+
+        function rotate(id) {
+            const p = pagesData.find(x => x.id == id);
+            p.rotation = (p.rotation + 90) % 360;
+            document.getElementById(`img-${id}`).style.transform = `rotate(${p.rotation}deg)`;
+        }
+
+        function remove(id) {
+            pagesData = pagesData.filter(x => x.id != id);
+            document.getElementById(`card-${id}`).remove();
+        }
+
+        async function saveFinalPdf() {
+            if(pagesData.length === 0) return alert("Prvo dodaj PDF!");
+            const newPdf = await PDFLib.PDFDocument.create();
+            for (const p of pagesData) {
+                const [copied] = await newPdf.copyPages(p.doc, [p.doc.getPages().indexOf(p.libPage)]);
+                copied.setRotation(PDFLib.degrees(p.rotation));
+                newPdf.addPage(copied);
+            }
+            const bytes = await newPdf.save();
+            download(bytes, "spojeni_dokument.pdf", "application/pdf");
+        }
+
+        async function doExport(fmt) {
+            const file = document.getElementById('export-upload').files[0];
+            if(!file) return alert("Izaberi PDF!");
+            const fd = new FormData();
+            fd.append('file', file);
+            fd.append('format', fmt);
+
+            const res = await fetch('/api/export', { method: 'POST', body: fd });
+            const blob = await res.blob();
+            download(blob, `izvoz.${fmt}`, res.headers.get('Content-Type'));
+            updateStats();
+        }
+
+        async function updateStats() {
+            const res = await fetch('/api/stats');
+            const data = await res.json();
+            document.getElementById('stat-pages').innerText = data.total_pages;
+            const history = document.getElementById('history-list');
+            history.innerHTML = data.history.reverse().map(h => `<div>• ${h.name.substring(0,15)} [${h.fmt}]</div>`).join('');
+        }
+
+        function download(data, name, type) {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([data], {type}));
+            a.download = name; a.click();
+        }
+        window.onload = updateStats;
+    </script>
+</body>
+</html>
